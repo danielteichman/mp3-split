@@ -1,0 +1,144 @@
+#!/usr/bin/python3
+import sys
+import os
+import re
+import subprocess
+import math
+
+if len(sys.argv) < 3:
+    print('Usage: mp3-split MP3_FILE SPLIT_INFO\n\n')
+    print('Example SPLIT_INFO file:')
+    print('01 Track Name 1 0:00')
+    print('02 The Second Track 3:26')
+    print('03 A Third Piece 26:01')
+    exit()
+    
+def secs_to_timecode(secs):
+    hours = math.floor(secs/3600)
+    secs -= hours * 3600
+    mins = math.floor(secs/60)
+    secs -= mins * 60
+    return format_timecode("{}:{}:{}".format(hours, mins, secs))
+
+def timecode_to_secs(timecode):
+    timecode = timecode.split(sep=':')
+    if len(timecode) == 3:
+        hours = int(timecode[0])
+        mins = int(timecode[1])
+        secs = int(timecode[2])+(mins*60)+(hours*3600)
+    elif len(timecode) == 2:
+        mins = int(timecode[0])
+        secs = int(timecode[1])+(mins*60)
+    else:
+        secs = int(timecode[0])
+    return secs
+
+def timecode_diff(tc1, tc2):
+    tc1 = timecode_to_secs(tc1)
+    tc2 = timecode_to_secs(tc2)
+    return secs_to_timecode(abs(tc1-tc2))
+    
+def format_timecode(timecode):
+    #add leading zeroes to timecode
+    _timecode = timecode.split(sep=':')
+    first = True
+    for j in range(0, len(_timecode)):
+        if len(_timecode[j]) < 2:
+            _timecode[j] = '0'+_timecode[j]
+        if first:
+            timecode = _timecode[j]
+            first = False
+        else:
+            timecode = timecode + ':' + _timecode[j]
+    return timecode
+
+def print_call(call):
+    print('Calling', end=' ')
+    for q in call:
+        print(q, end=' ')
+    print('')
+
+cwd = os.getcwd()
+scriptPath = sys.argv[0]
+mp3Name = sys.argv[1]
+fileName = sys.argv[2]
+
+if mp3Name[0] == '/':
+    mp3Path = mp3Name
+else:
+    mp3Path = cwd+'/'+mp3Name
+
+if fileName[0] == '/':
+    filePath = fileName
+else:
+    filePath = cwd+'/'+fileName
+
+f = open(filePath, 'r')
+data = f.read().strip()
+f.close()
+
+data = data.split(sep='\n')
+
+
+timecodes = []
+trackNames = []
+trackNums = []
+
+for line in data:
+    line = line.split(sep=' ')
+    for i in reversed(range(0, len(line))):
+        line[i] = line[i].strip()
+        if len(line[i]) < 4:
+            continue
+        else:
+            timecode = format_timecode(line[i])
+            break
+    
+    
+    trackNum = re.match(r'([0-9]{1,}).*', line[0], flags=0).group(1)
+    
+    
+    first = True
+    for j in range(1, i):
+        if first:
+            trackName = line[j]
+            first = False
+        else:
+            trackName = trackName + " " + line[j]
+    
+    print('Track #'+trackNum+' named "'+trackName+'" starts at '+timecode)
+    timecodes.append(timecode)
+    trackNames.append(trackName)
+    trackNums.append(trackNum)
+
+#ffmpeg -i your_audio_file.mp3 -acodec copy -t 00:30:00 -ss 00:00:00 half_hour_split.mp3
+
+call = ['mp3info', '-p', '"%S"', mp3Path]
+print_call(call)
+mp3SecsRaw = subprocess.check_output(call)
+mp3Secs = int(re.match(r'.*?([0-9]{1,}).*', str(mp3SecsRaw), flags=0).group(1))
+
+mp3Len = secs_to_timecode(mp3Secs)
+
+timecodes.append(mp3Len)
+
+print('\nAudio ends at ', mp3Len)
+
+_ffmpeg_call = ['ffmpeg', '-i', mp3Path, '-acodec', 'copy', '-t', '<time>', '-ss', '<start>', '<out.mp3>']
+_eyeD3_call = ['eyeD3', '-n', '<num>', '-t', '<track>', '<file.mp3>']
+for i in range(0, len(timecodes)-1):
+    outFileName = trackNames[i]+'.mp3'
+    
+    call = list(_ffmpeg_call)
+    call[6] = timecode_diff(timecodes[i+1], timecodes[i])
+    call[8] = timecodes[i]
+    call[9] = outFileName
+    print_call(call)
+    subprocess.check_output(call)
+    
+    call = list(_eyeD3_call)
+    call[2] = trackNums[i]
+    call[4] = trackNames[i]
+    call[5] = outFileName
+    print_call(call)
+    subprocess.check_output(call)
