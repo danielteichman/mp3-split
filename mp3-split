@@ -25,7 +25,7 @@ def timecode_to_secs(timecode):
     if len(timecode) == 3:
         hours = int(timecode[0])
         mins = int(timecode[1])
-        secs = int(timecode[2])+(mins*60)+(hours*3600)
+        secs = int(math.ceil(float(timecode[2])))+(mins*60)+(hours*3600)
     elif len(timecode) == 2:
         mins = int(timecode[0])
         secs = int(timecode[1])+(mins*60)
@@ -113,21 +113,20 @@ for line in data:
 
 #ffmpeg -i your_audio_file.mp3 -acodec copy -t 00:30:00 -ss 00:00:00 half_hour_split.mp3
 
-call = ['mp3info', '-p', '"%S"', mp3Path]
-print_call(call)
-mp3SecsRaw = subprocess.check_output(call)
-mp3Secs = int(re.match(r'.*?([0-9]{1,}).*', str(mp3SecsRaw), flags=0).group(1))
+call = ["ffprobe", mp3Path]
+mp3SecsRaw = subprocess.run(call, capture_output=True, text=True).stderr
 
-mp3Len = secs_to_timecode(mp3Secs)
+mp3Len = re.search(r'Duration:\s(.*?),', mp3SecsRaw, re.MULTILINE).group(1)
 
 timecodes.append(mp3Len)
 
 print('\nAudio ends at ', mp3Len)
+filename, fileExtension = os.path.splitext(mp3Path)
 
 _ffmpeg_call = ['ffmpeg', '-i', mp3Path, '-acodec', 'copy', '-t', '<time>', '-ss', '<start>', '<out.mp3>']
 _eyeD3_call = ['eyeD3', '-n', '<num>', '-t', '<track>', '<file.mp3>']
 for i in range(0, len(timecodes)-1):
-    outFileName = trackNames[i]+'.mp3'
+    outFileName = trackNums[i] + " " + trackNames[i] + fileExtension
     
     call = list(_ffmpeg_call)
     call[6] = timecode_diff(timecodes[i+1], timecodes[i])
@@ -135,10 +134,11 @@ for i in range(0, len(timecodes)-1):
     call[9] = outFileName
     print_call(call)
     subprocess.check_output(call)
-    
-    call = list(_eyeD3_call)
-    call[2] = trackNums[i]
-    call[4] = trackNames[i]
-    call[5] = outFileName
-    print_call(call)
-    subprocess.check_output(call)
+
+    if fileExtension == ".mp3":
+        call = list(_eyeD3_call)
+        call[2] = trackNums[i]
+        call[4] = trackNames[i]
+        call[5] = outFileName
+        print_call(call)
+        subprocess.check_output(call)
